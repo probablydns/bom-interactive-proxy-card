@@ -3,7 +3,8 @@
 Self-contained Home Assistant custom card for embedding [BOM Interactive Proxy](https://github.com/probablydns/bom-interactive-proxy) on a dashboard.
 
 The display name is `BOM Interactive Proxy Card`.
-The card type remains `custom:bom-radar-card` for backward compatibility.
+The card type is `custom:bom-interactive-proxy-card`.
+The old `custom:bom-radar-card` alias was removed to avoid collisions with unrelated cards.
 
 This folder is intended to be copied into its own repository as-is.
 
@@ -51,11 +52,11 @@ If you copy this folder into a new repository root, the repo is ready for HACS a
 ### Manual Install
 
 1. Copy `bom-radar-card.js` into your Home Assistant `www` folder, for example:
-   `/config/www/bom-radar-card/bom-radar-card.js`
+   `/config/www/bom-interactive-proxy-card/bom-radar-card.js`
 2. Add a dashboard resource:
 
 ```yaml
-url: /local/bom-radar-card/bom-radar-card.js
+url: /local/bom-interactive-proxy-card/bom-radar-card.js
 type: module
 ```
 
@@ -64,7 +65,7 @@ type: module
 ## Minimal Example
 
 ```yaml
-type: custom:bom-radar-card
+type: custom:bom-interactive-proxy-card
 title: BOM Radar
 place: melbourne
 zoom: 7
@@ -73,7 +74,7 @@ zoom: 7
 ## Ingress Example
 
 ```yaml
-type: custom:bom-radar-card
+type: custom:bom-interactive-proxy-card
 title: BOM Radar
 place: melbourne
 zoom: 7
@@ -82,7 +83,7 @@ zoom: 7
 ## Advanced Example
 
 ```yaml
-type: custom:bom-radar-card
+type: custom:bom-interactive-proxy-card
 title: Ashburton Radar
 base_url: http://homeassistant.local:8083/
 place: ashburton

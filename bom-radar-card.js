@@ -1,5 +1,5 @@
-const BOM_RADAR_CARD_TAG = "bom-radar-card";
-const BOM_RADAR_CARD_EDITOR_TAG = "bom-radar-card-editor";
+const BOM_INTERACTIVE_PROXY_CARD_TAG = "bom-interactive-proxy-card";
+const BOM_INTERACTIVE_PROXY_CARD_EDITOR_TAG = "bom-interactive-proxy-card-editor";
 const DEFAULT_CARD_HEIGHT = 420;
 const DEFAULT_ADDON_ID = "13fa7b7e_bom_interactive_proxy";
 const FALLBACK_ADDON_SLUG = "bom_interactive_proxy";
@@ -448,7 +448,7 @@ class BomRadarCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement(BOM_RADAR_CARD_EDITOR_TAG);
+    return document.createElement(BOM_INTERACTIVE_PROXY_CARD_EDITOR_TAG);
   }
 
   static getStubConfig() {
@@ -945,18 +945,18 @@ class BomRadarCardEditor extends HTMLElement {
   }
 }
 
-if (!customElements.get(BOM_RADAR_CARD_TAG)) {
-  customElements.define(BOM_RADAR_CARD_TAG, BomRadarCard);
+if (!customElements.get(BOM_INTERACTIVE_PROXY_CARD_TAG)) {
+  customElements.define(BOM_INTERACTIVE_PROXY_CARD_TAG, BomRadarCard);
 }
 
-if (!customElements.get(BOM_RADAR_CARD_EDITOR_TAG)) {
-  customElements.define(BOM_RADAR_CARD_EDITOR_TAG, BomRadarCardEditor);
+if (!customElements.get(BOM_INTERACTIVE_PROXY_CARD_EDITOR_TAG)) {
+  customElements.define(BOM_INTERACTIVE_PROXY_CARD_EDITOR_TAG, BomRadarCardEditor);
 }
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === BOM_RADAR_CARD_TAG)) {
+if (!window.customCards.some((card) => card.type === BOM_INTERACTIVE_PROXY_CARD_TAG)) {
   window.customCards.push({
-    type: BOM_RADAR_CARD_TAG,
+    type: BOM_INTERACTIVE_PROXY_CARD_TAG,
     name: "BOM Interactive Proxy Card",
     description: "Dashboard card for BOM Interactive Proxy radar maps with location, zoom, labels, animation, and ingress support.",
     preview: true,
