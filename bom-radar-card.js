@@ -1,7 +1,8 @@
 const BOM_RADAR_CARD_TAG = "bom-radar-card";
 const BOM_RADAR_CARD_EDITOR_TAG = "bom-radar-card-editor";
 const DEFAULT_CARD_HEIGHT = 420;
-const DEFAULT_ADDON_SLUG = "bom_interactive_proxy";
+const DEFAULT_ADDON_ID = "13fa7b7e_bom_interactive_proxy";
+const FALLBACK_ADDON_SLUG = "bom_interactive_proxy";
 const DEFAULT_PANEL_PATH = "/app/13fa7b7e_bom_interactive_proxy/";
 
 function escapeHtml(value) {
@@ -186,8 +187,45 @@ function selectValue(value) {
   return value === undefined || value === null ? "" : String(value);
 }
 
-function addonSlug(config) {
-  return normalizeText(config.addon_slug) || DEFAULT_ADDON_SLUG;
+function extractAddonIdFromPanelPath(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const url = new URL(normalized, window.location.origin);
+    const match = url.pathname.match(/^\/app\/([^/]+)/);
+    return match && match[1] ? match[1] : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function addonSlugs(config) {
+  const candidates = [
+    normalizeText(config.addon_slug),
+    extractAddonIdFromPanelPath(config.panel_path || config.ingress_path),
+    extractAddonIdFromPanelPath(DEFAULT_PANEL_PATH),
+    DEFAULT_ADDON_ID,
+    FALLBACK_ADDON_SLUG,
+  ];
+
+  const expanded = [];
+  for (const candidate of candidates) {
+    const normalized = normalizeText(candidate);
+    if (!normalized) {
+      continue;
+    }
+
+    expanded.push(normalized);
+
+    if (normalized.endsWith(`_${FALLBACK_ADDON_SLUG}`)) {
+      expanded.push(FALLBACK_ADDON_SLUG);
+    }
+  }
+
+  return Array.from(new Set(expanded));
 }
 
 function unpackApiPayload(payload) {
@@ -215,24 +253,31 @@ function isRawIngressBaseUrl(value) {
   }
 }
 
-async function fetchAddonInfo(hass, slug) {
-  if (!hass || typeof hass.callApi !== "function" || !slug) {
+async function fetchAddonInfo(hass, slugCandidates) {
+  if (!hass || typeof hass.callApi !== "function") {
     return null;
   }
 
-  const endpoints = [
-    `hassio/addons/${encodeURIComponent(slug)}/info`,
-    `supervisor/addons/${encodeURIComponent(slug)}/info`,
-  ];
+  const candidates = Array.isArray(slugCandidates) ? slugCandidates : [slugCandidates];
+  for (const slug of candidates) {
+    if (!slug) {
+      continue;
+    }
 
-  for (const endpoint of endpoints) {
-    try {
-      const payload = await hass.callApi("GET", endpoint);
-      if (payload) {
-        return payload;
+    const endpoints = [
+      `hassio/addons/${encodeURIComponent(slug)}/info`,
+      `supervisor/addons/${encodeURIComponent(slug)}/info`,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const payload = await hass.callApi("GET", endpoint);
+        if (payload) {
+          return payload;
+        }
+      } catch (_error) {
+        // Try the next endpoint or candidate slug.
       }
-    } catch (_error) {
-      // Try the next supervisor proxy endpoint.
     }
   }
 
@@ -407,7 +452,7 @@ class BomRadarCard extends HTMLElement {
     this._resolvingIngress = true;
     this._render();
 
-    const payload = await fetchAddonInfo(this._hass, addonSlug(this._config));
+    const payload = await fetchAddonInfo(this._hass, addonSlugs(this._config));
     if (requestId !== this._ingressRequestId) {
       return;
     }
@@ -603,7 +648,7 @@ class BomRadarCardEditor extends HTMLElement {
     this._resolvingIngress = true;
     this._render();
 
-    const payload = await fetchAddonInfo(this._hass, addonSlug(this._config));
+    const payload = await fetchAddonInfo(this._hass, addonSlugs(this._config));
     if (requestId !== this._ingressRequestId) {
       return;
     }
@@ -773,6 +818,7 @@ class BomRadarCardEditor extends HTMLElement {
         <details>
           <summary>Advanced</summary>
           <div class="section-body">
+            ${editorTextField("Add-on ID", "addon_slug", config.addon_slug, DEFAULT_ADDON_ID, "Home Assistant add-on identifier used for Supervisor ingress lookup. Change this only if you installed the add-on from a fork or a local repo with a different prefix.")}
             ${editorTextField("Extra query", "extra_query", config.extra_query, "cleanup=1&cb=my-debug-token", "Optional raw query string appended to the generated URL.")}
           </div>
         </details>

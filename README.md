@@ -40,6 +40,7 @@ This card does not talk to BOM directly. It embeds the BOM Interactive Proxy app
 
 - GitHub: `https://github.com/probablydns/bom-interactive-proxy`
 - Home Assistant add-on slug: `bom_interactive_proxy`
+- Home Assistant add-on ID used by Supervisor in this repo: `13fa7b7e_bom_interactive_proxy`
 
 ## Install
 
@@ -103,6 +104,7 @@ refresh_interval: 10
 | --- | --- | --- |
 | `title` | string | Optional card header. |
 | `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to auto-resolve add-on ingress and prefer `/api/hassio_ingress/...`. |
+| `addon_slug` | string | Optional Home Assistant add-on ID for Supervisor lookup. Default for this repo is `13fa7b7e_bom_interactive_proxy`. |
 | `path` | string | Full BOM location path. |
 | `place` | string | Place lookup, for example `melbourne` or `richmond,vic`. |
 | `coords` | string | Coordinate lookup in `lat,lon` form. |
