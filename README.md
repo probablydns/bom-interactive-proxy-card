@@ -26,9 +26,11 @@ Use a stable proxy root for `base_url`:
 - local direct access: `http://homeassistant.local:8083/`
 - reverse-proxied access: `https://weather.example.com/`
 
-If `base_url` is left blank, the card uses the stable Home Assistant ingress path `/app/13fa7b7e_bom_interactive_proxy/`.
+If `base_url` is left blank, the card resolves the live Home Assistant add-on ingress URL via Supervisor and prefers the raw `/api/hassio_ingress/...` endpoint.
 
-Avoid hardcoding Home Assistant ingress session URLs for long-lived dashboards. They are useful for testing, but they are not the best stable dashboard target.
+Avoid hardcoding Home Assistant ingress session URLs for long-lived dashboards. They are useful for testing, but the card can resolve the current one automatically.
+
+The stable Home Assistant panel path `/app/13fa7b7e_bom_interactive_proxy/` still works as a fallback, but if you embed that route inside a card iframe it will include Home Assistant chrome such as the menu hamburger.
 
 If your Home Assistant dashboard is served over HTTPS, use an HTTPS or same-origin `base_url`. Browsers can block `http://...:8083/` as mixed content.
 
@@ -72,7 +74,6 @@ zoom: 7
 ```yaml
 type: custom:bom-radar-card
 title: BOM Radar
-base_url: /app/13fa7b7e_bom_interactive_proxy/
 place: melbourne
 zoom: 7
 ```
@@ -101,7 +102,7 @@ refresh_interval: 10
 | Key | Type | Description |
 | --- | --- | --- |
 | `title` | string | Optional card header. |
-| `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to use `/app/13fa7b7e_bom_interactive_proxy/`. |
+| `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to auto-resolve add-on ingress and prefer `/api/hassio_ingress/...`. |
 | `path` | string | Full BOM location path. |
 | `place` | string | Place lookup, for example `melbourne` or `richmond,vic`. |
 | `coords` | string | Coordinate lookup in `lat,lon` form. |
@@ -123,7 +124,8 @@ refresh_interval: 10
 ## Notes
 
 - The card passes options straight through to the proxy URL, so the proxy remains the source of truth.
-- The stable ingress path for this add-on is `/app/13fa7b7e_bom_interactive_proxy/`.
+- The card prefers the live add-on ingress URL so the iframe stays free of Home Assistant chrome.
+- `/app/13fa7b7e_bom_interactive_proxy/` remains a useful panel-path fallback, but it will include the Home Assistant shell when embedded.
 - `path` is the most specific location option and should win over `place` or `coords`.
 - The built-in editor exposes the most useful dashboard options without needing YAML.
 - Tested against BOM Interactive Proxy `1.0.64`.

@@ -2,7 +2,7 @@ const BOM_RADAR_CARD_TAG = "bom-radar-card";
 const BOM_RADAR_CARD_EDITOR_TAG = "bom-radar-card-editor";
 const DEFAULT_CARD_HEIGHT = 420;
 const DEFAULT_ADDON_SLUG = "bom_interactive_proxy";
-const DEFAULT_INGRESS_PATH = "/app/13fa7b7e_bom_interactive_proxy/";
+const DEFAULT_PANEL_PATH = "/app/13fa7b7e_bom_interactive_proxy/";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -34,9 +34,9 @@ function configuredBaseUrl(config) {
   return normalizeBaseUrl(config.base_url || config.proxy_url);
 }
 
-function defaultIngressBaseUrl(config) {
-  const configuredIngressPath = normalizeText(config.ingress_path);
-  return normalizeBaseUrl(configuredIngressPath || DEFAULT_INGRESS_PATH);
+function defaultPanelBaseUrl(config) {
+  const configuredIngressPath = normalizeText(config.ingress_path || config.panel_path);
+  return normalizeBaseUrl(configuredIngressPath || DEFAULT_PANEL_PATH);
 }
 
 function suggestedBaseUrl() {
@@ -206,6 +206,15 @@ function extractIngressBaseUrl(payload) {
   return normalizeBaseUrl(info.ingress_url || info.ingress_entry);
 }
 
+function isRawIngressBaseUrl(value) {
+  try {
+    const url = new URL(value, window.location.origin);
+    return /^\/api\/hassio_ingress\/[^/]+\/?$/.test(url.pathname);
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function fetchAddonInfo(hass, slug) {
   if (!hass || typeof hass.callApi !== "function" || !slug) {
     return null;
@@ -306,7 +315,7 @@ class BomRadarCard extends HTMLElement {
 
     this._ingressRequestId += 1;
     this._resolvingIngress = false;
-    this._resolvedBaseUrl = configuredBaseUrl(this._config) || defaultIngressBaseUrl(this._config);
+    this._resolvedBaseUrl = configuredBaseUrl(this._config);
     this._ingressResolved = Boolean(this._resolvedBaseUrl);
     this._syncRefreshTimer();
     this._ensureResolvedBaseUrl();
@@ -390,14 +399,6 @@ class BomRadarCard extends HTMLElement {
       return;
     }
 
-    const defaultIngress = defaultIngressBaseUrl(this._config);
-    if (defaultIngress) {
-      this._resolvedBaseUrl = defaultIngress;
-      this._ingressResolved = true;
-      this._resolvingIngress = false;
-      return;
-    }
-
     if (this._ingressResolved || this._resolvingIngress || !this._hass) {
       return;
     }
@@ -411,7 +412,7 @@ class BomRadarCard extends HTMLElement {
       return;
     }
 
-    this._resolvedBaseUrl = extractIngressBaseUrl(payload);
+    this._resolvedBaseUrl = extractIngressBaseUrl(payload) || defaultPanelBaseUrl(this._config);
     this._ingressResolved = true;
     this._resolvingIngress = false;
     this._render();
@@ -564,7 +565,7 @@ class BomRadarCardEditor extends HTMLElement {
 
     this._ingressRequestId += 1;
     this._resolvingIngress = false;
-    this._resolvedBaseUrl = configuredBaseUrl(this._config) || defaultIngressBaseUrl(this._config);
+    this._resolvedBaseUrl = configuredBaseUrl(this._config);
     this._ingressResolved = Boolean(this._resolvedBaseUrl);
     this._ensureResolvedBaseUrl();
     this._render();
@@ -594,14 +595,6 @@ class BomRadarCardEditor extends HTMLElement {
       return;
     }
 
-    const defaultIngress = defaultIngressBaseUrl(this._config);
-    if (defaultIngress) {
-      this._resolvedBaseUrl = defaultIngress;
-      this._ingressResolved = true;
-      this._resolvingIngress = false;
-      return;
-    }
-
     if (this._ingressResolved || this._resolvingIngress || !this._hass) {
       return;
     }
@@ -615,7 +608,7 @@ class BomRadarCardEditor extends HTMLElement {
       return;
     }
 
-    this._resolvedBaseUrl = extractIngressBaseUrl(payload);
+    this._resolvedBaseUrl = extractIngressBaseUrl(payload) || defaultPanelBaseUrl(this._config);
     this._ingressResolved = true;
     this._resolvingIngress = false;
     this._render();
@@ -625,8 +618,10 @@ class BomRadarCardEditor extends HTMLElement {
     const config = this._config || {};
     const previewUrl = buildRadarUrl(config, "", this._resolvedBaseUrl);
     const baseUrlHelp = this._resolvedBaseUrl && !configuredBaseUrl(config)
-      ? `Blank uses Home Assistant ingress: ${this._resolvedBaseUrl}`
-      : "Leave blank to use Home Assistant ingress automatically.";
+      ? isRawIngressBaseUrl(this._resolvedBaseUrl)
+        ? `Blank resolves the live add-on ingress endpoint automatically: ${this._resolvedBaseUrl}`
+        : `Blank fell back to the Home Assistant panel path: ${this._resolvedBaseUrl}`
+      : "Leave blank to use add-on ingress automatically. The card prefers /api/hassio_ingress/... so the iframe stays free of Home Assistant chrome.";
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -726,14 +721,14 @@ class BomRadarCardEditor extends HTMLElement {
       </style>
       <div class="editor">
         <div class="note">
-          Leave <code>base_url</code> blank to use the BOM Interactive Proxy add-on ingress automatically when it is available. If you need direct access instead, use a stable proxy root such as <code>http://homeassistant.local:8083/</code> or an HTTPS reverse proxy.
+          Leave <code>base_url</code> blank to use the BOM Interactive Proxy add-on ingress automatically. The card prefers the raw <code>/api/hassio_ingress/...</code> endpoint so the embedded frame does not show the Home Assistant hamburger/header. If you need direct access instead, use a stable proxy root such as <code>http://homeassistant.local:8083/</code> or an HTTPS reverse proxy.
         </div>
 
         <details open>
           <summary>Connection</summary>
           <div class="section-body">
             ${editorTextField("Title", "title", config.title, "BOM Radar", "Optional card header.")}
-            ${editorTextField("Base URL", "base_url", config.base_url, "http://homeassistant.local:8083/ or /app/13fa7b7e_bom_interactive_proxy/", `Root URL of BOM Interactive Proxy, not a /location/... page. ${baseUrlHelp}`)}
+            ${editorTextField("Base URL", "base_url", config.base_url, "http://homeassistant.local:8083/ or https://weather.example.com/", `Root URL of BOM Interactive Proxy, not a /location/... page. ${baseUrlHelp}`)}
             ${editorNumberField("Card height", "height", config.height, String(DEFAULT_CARD_HEIGHT), "Card body height in pixels.", 240)}
             ${editorNumberField("Auto-refresh interval", "refresh_interval", config.refresh_interval, "0", "Minutes between forced iframe reloads. Leave blank or 0 to disable.", 0)}
           </div>
@@ -842,7 +837,7 @@ class BomRadarCardEditor extends HTMLElement {
     this._config = nextConfig;
     this._ingressRequestId += 1;
     this._resolvingIngress = false;
-    this._resolvedBaseUrl = configuredBaseUrl(nextConfig) || defaultIngressBaseUrl(nextConfig);
+    this._resolvedBaseUrl = configuredBaseUrl(nextConfig);
     this._ingressResolved = Boolean(this._resolvedBaseUrl);
     if (!this._resolvedBaseUrl) {
       this._ensureResolvedBaseUrl();
