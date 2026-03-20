@@ -2,6 +2,8 @@
 
 Self-contained Home Assistant custom card for embedding [BOM Interactive Proxy](https://github.com/probablydns/bom-interactive-proxy) on a dashboard.
 
+![BOM Interactive Proxy Card logo](logo.png)
+
 The display name is `BOM Interactive Proxy Card`.
 The card type is `custom:bom-interactive-proxy-card`.
 The old `custom:bom-radar-card` alias was removed to avoid collisions with unrelated cards.
@@ -131,4 +133,4 @@ refresh_interval: 10
 - `/app/13fa7b7e_bom_interactive_proxy/` remains a useful panel-path fallback, but it will include the Home Assistant shell when embedded.
 - `path` is the most specific location option and should win over `place` or `coords`.
 - The built-in editor exposes the most useful dashboard options without needing YAML.
-- Tested against BOM Interactive Proxy `1.0.64`.
+- Tested against BOM Interactive Proxy `1.0.67`.
