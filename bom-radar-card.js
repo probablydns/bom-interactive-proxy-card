@@ -1,6 +1,7 @@
 const BOM_RADAR_CARD_TAG = "bom-radar-card";
 const BOM_RADAR_CARD_EDITOR_TAG = "bom-radar-card-editor";
 const DEFAULT_CARD_HEIGHT = 420;
+const DEFAULT_ADDON_SLUG = "bom_interactive_proxy";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -26,6 +27,10 @@ function normalizeBaseUrl(rawValue) {
   } catch (_error) {
     return "";
   }
+}
+
+function configuredBaseUrl(config) {
+  return normalizeBaseUrl(config.base_url || config.proxy_url);
 }
 
 function suggestedBaseUrl() {
@@ -103,8 +108,8 @@ function appendBooleanChoiceParam(params, key, value) {
   params.set(key, normalized ? "1" : "0");
 }
 
-function buildRadarUrl(config, reloadToken = "") {
-  const baseUrl = normalizeBaseUrl(config.base_url || config.proxy_url);
+function buildRadarUrl(config, reloadToken = "", baseUrlOverride = "") {
+  const baseUrl = normalizeBaseUrl(baseUrlOverride || config.base_url || config.proxy_url);
   if (!baseUrl) {
     return "";
   }
@@ -147,52 +152,6 @@ function buildRadarUrl(config, reloadToken = "") {
   return url.toString();
 }
 
-function buildLocationSummary(config) {
-  const path = normalizeText(config.path);
-  if (path) {
-    return `Path: ${path}`;
-  }
-  const place = normalizeText(config.place);
-  if (place) {
-    return `Place: ${place}`;
-  }
-  const coords = normalizeText(config.coords);
-  if (coords) {
-    return `Coords: ${coords}`;
-  }
-  return "Proxy default location";
-}
-
-function buildModeChips(config) {
-  const chips = [];
-  const zoom = normalizeNumber(config.zoom);
-  if (zoom !== null) {
-    chips.push(`Zoom ${zoom}`);
-  }
-
-  const towns = normalizeBooleanChoice(config.show_town_names);
-  if (towns !== null) {
-    chips.push(towns ? "Town labels on" : "Town labels off");
-  }
-
-  const animate = normalizeBooleanChoice(config.animate);
-  if (animate !== null) {
-    chips.push(animate ? "Animation on" : "Animation off");
-  }
-
-  const interactive = normalizeBooleanChoice(config.interactive);
-  if (interactive !== null) {
-    chips.push(interactive ? "Interactive" : "Locked");
-  }
-
-  const lowPower = normalizeBooleanChoice(config.low_power);
-  if (lowPower === true) {
-    chips.push("Low power");
-  }
-
-  return chips;
-}
-
 function resolvedCardHeight(config) {
   const configured = normalizeNumber(config.height);
   if (configured === null) {
@@ -219,6 +178,50 @@ function booleanChoiceValue(configValue) {
 
 function selectValue(value) {
   return value === undefined || value === null ? "" : String(value);
+}
+
+function addonSlug(config) {
+  return normalizeText(config.addon_slug) || DEFAULT_ADDON_SLUG;
+}
+
+function unpackApiPayload(payload) {
+  if (payload && typeof payload === "object" && payload.data && typeof payload.data === "object") {
+    return payload.data;
+  }
+  return payload && typeof payload === "object" ? payload : {};
+}
+
+function extractIngressBaseUrl(payload) {
+  const info = unpackApiPayload(payload);
+  if (!info || (!info.ingress && !info.ingress_panel)) {
+    return "";
+  }
+
+  return normalizeBaseUrl(info.ingress_url || info.ingress_entry);
+}
+
+async function fetchAddonInfo(hass, slug) {
+  if (!hass || typeof hass.callApi !== "function" || !slug) {
+    return null;
+  }
+
+  const endpoints = [
+    `hassio/addons/${encodeURIComponent(slug)}/info`,
+    `supervisor/addons/${encodeURIComponent(slug)}/info`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const payload = await hass.callApi("GET", endpoint);
+      if (payload) {
+        return payload;
+      }
+    } catch (_error) {
+      // Try the next supervisor proxy endpoint.
+    }
+  }
+
+  return null;
 }
 
 function editorTextField(label, key, value, placeholder, helpText = "") {
@@ -282,26 +285,31 @@ class BomRadarCard extends HTMLElement {
     this._config = {};
     this._reloadToken = "";
     this._refreshTimer = null;
-    this._boundReload = () => this._forceReload();
-    this._boundOpen = () => this._openExternal();
+    this._resolvedBaseUrl = "";
+    this._resolvingIngress = false;
+    this._ingressResolved = false;
+    this._ingressRequestId = 0;
   }
 
   setConfig(config) {
-    this._config = {
-      show_toolbar: true,
-      ...config,
-    };
+    this._config = { ...config };
 
     if (!this._config.base_url && this._config.proxy_url) {
       this._config.base_url = this._config.proxy_url;
     }
 
+    this._ingressRequestId += 1;
+    this._resolvingIngress = false;
+    this._resolvedBaseUrl = configuredBaseUrl(this._config);
+    this._ingressResolved = Boolean(this._resolvedBaseUrl);
     this._syncRefreshTimer();
+    this._ensureResolvedBaseUrl();
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._ensureResolvedBaseUrl();
     if (!this.shadowRoot.innerHTML) {
       this._render();
     }
@@ -309,6 +317,7 @@ class BomRadarCard extends HTMLElement {
 
   connectedCallback() {
     this._syncRefreshTimer();
+    this._ensureResolvedBaseUrl();
     if (!this.shadowRoot.innerHTML) {
       this._render();
     }
@@ -342,7 +351,6 @@ class BomRadarCard extends HTMLElement {
       base_url: suggestedBaseUrl(),
       place: "melbourne",
       zoom: 7,
-      show_toolbar: true,
     };
   }
 
@@ -367,21 +375,40 @@ class BomRadarCard extends HTMLElement {
     this._render();
   }
 
-  _openExternal() {
-    const url = buildRadarUrl(this._config, this._reloadToken);
-    if (!url) {
+  async _ensureResolvedBaseUrl() {
+    const configured = configuredBaseUrl(this._config);
+    if (configured) {
+      this._resolvedBaseUrl = configured;
+      this._ingressResolved = true;
+      this._resolvingIngress = false;
       return;
     }
-    window.open(url, "_blank", "noopener");
+
+    if (this._ingressResolved || this._resolvingIngress || !this._hass) {
+      return;
+    }
+
+    const requestId = ++this._ingressRequestId;
+    this._resolvingIngress = true;
+    this._render();
+
+    const payload = await fetchAddonInfo(this._hass, addonSlug(this._config));
+    if (requestId !== this._ingressRequestId) {
+      return;
+    }
+
+    this._resolvedBaseUrl = extractIngressBaseUrl(payload);
+    this._ingressResolved = true;
+    this._resolvingIngress = false;
+    this._render();
   }
 
   _render() {
     const title = normalizeText(this._config.title);
-    const url = buildRadarUrl(this._config, this._reloadToken);
-    const showToolbar = this._config.show_toolbar !== false;
+    const url = buildRadarUrl(this._config, this._reloadToken, this._resolvedBaseUrl);
     const height = resolvedCardHeight(this._config);
     const mixedContent = Boolean(url) && window.location.protocol === "https:" && url.startsWith("http://");
-    const chips = [buildLocationSummary(this._config), ...buildModeChips(this._config)];
+    const waitingForIngress = !url && this._resolvingIngress;
     const headerAttr = title ? ` header="${escapeHtml(title)}"` : "";
 
     this.shadowRoot.innerHTML = `
@@ -398,50 +425,7 @@ class BomRadarCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 12px;
-        }
-
-        .toolbar {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 16px 16px 0;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .chip {
-          border-radius: 999px;
-          background: var(--secondary-background-color);
-          color: var(--primary-text-color);
-          font-size: 12px;
-          line-height: 1;
-          padding: 8px 10px;
-        }
-
-        .actions {
-          display: flex;
-          gap: 8px;
-          flex-shrink: 0;
-        }
-
-        .action-button {
-          appearance: none;
-          border: 1px solid var(--divider-color);
-          background: var(--card-background-color);
-          color: var(--primary-text-color);
-          border-radius: 10px;
-          padding: 8px 12px;
-          cursor: pointer;
-          font: inherit;
-        }
-
-        .action-button:hover {
-          background: var(--secondary-background-color);
+          padding-top: 16px;
         }
 
         .message {
@@ -504,34 +488,9 @@ class BomRadarCard extends HTMLElement {
         .empty-state code {
           white-space: nowrap;
         }
-
-        @media (max-width: 600px) {
-          .toolbar {
-            flex-direction: column;
-          }
-
-          .actions {
-            width: 100%;
-          }
-
-          .action-button {
-            flex: 1 1 auto;
-          }
-        }
       </style>
       <ha-card${headerAttr}>
         <div class="card-content">
-          ${showToolbar ? `
-            <div class="toolbar">
-              <div class="chips">
-                ${chips.map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`).join("")}
-              </div>
-              <div class="actions">
-                <button class="action-button" id="reload" type="button">Reload</button>
-                <button class="action-button" id="open" type="button">Open</button>
-              </div>
-            </div>
-          ` : ""}
           ${mixedContent ? `
             <div class="message warning">
               This dashboard is running over HTTPS but the radar URL is HTTP. Browsers can block mixed-content iframes. Use an HTTPS or same-origin base URL if the card stays blank.
@@ -546,7 +505,9 @@ class BomRadarCard extends HTMLElement {
             <div class="empty-state">
               <div class="message error">
                 <strong>Card setup needed</strong>
-                Set <code>base_url</code> to the BOM Interactive Proxy root, for example <code>http://homeassistant.local:8083/</code> or an HTTPS reverse-proxied URL.
+                ${waitingForIngress
+                  ? "Checking BOM Interactive Proxy ingress..."
+                  : "Set <code>base_url</code> to the BOM Interactive Proxy root, for example <code>http://homeassistant.local:8083/</code>, or enable add-on ingress and leave <code>base_url</code> blank."}
               </div>
             </div>
           `}
@@ -554,17 +515,9 @@ class BomRadarCard extends HTMLElement {
       </ha-card>
     `;
 
-    const reloadButton = this.shadowRoot.getElementById("reload");
-    const openButton = this.shadowRoot.getElementById("open");
     const frame = this.shadowRoot.getElementById("radarFrame");
     const overlay = this.shadowRoot.getElementById("overlay");
 
-    if (reloadButton) {
-      reloadButton.addEventListener("click", this._boundReload);
-    }
-    if (openButton) {
-      openButton.addEventListener("click", this._boundOpen);
-    }
     if (frame && overlay) {
       frame.addEventListener("load", () => {
         overlay.style.display = "none";
@@ -581,39 +534,78 @@ class BomRadarCardEditor extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._config = {};
-    this._boundInput = (event) => this._handleValueChanged(event);
+    this._resolvedBaseUrl = "";
+    this._resolvingIngress = false;
+    this._ingressResolved = false;
+    this._ingressRequestId = 0;
+    this._boundChange = (event) => this._handleValueChanged(event);
   }
 
   setConfig(config) {
-    this._config = {
-      show_toolbar: true,
-      ...config,
-    };
+    this._config = { ...config };
 
     if (!this._config.base_url && this._config.proxy_url) {
       this._config.base_url = this._config.proxy_url;
     }
 
+    this._ingressRequestId += 1;
+    this._resolvingIngress = false;
+    this._resolvedBaseUrl = configuredBaseUrl(this._config);
+    this._ingressResolved = Boolean(this._resolvedBaseUrl);
+    this._ensureResolvedBaseUrl();
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._ensureResolvedBaseUrl();
     if (!this.shadowRoot.innerHTML) {
       this._render();
     }
   }
 
   connectedCallback() {
+    this._ensureResolvedBaseUrl();
     if (!this.shadowRoot.innerHTML) {
       this._render();
     }
   }
 
+  async _ensureResolvedBaseUrl() {
+    const configured = configuredBaseUrl(this._config);
+    if (configured) {
+      this._resolvedBaseUrl = configured;
+      this._ingressResolved = true;
+      this._resolvingIngress = false;
+      return;
+    }
+
+    if (this._ingressResolved || this._resolvingIngress || !this._hass) {
+      return;
+    }
+
+    const requestId = ++this._ingressRequestId;
+    this._resolvingIngress = true;
+    this._render();
+
+    const payload = await fetchAddonInfo(this._hass, addonSlug(this._config));
+    if (requestId !== this._ingressRequestId) {
+      return;
+    }
+
+    this._resolvedBaseUrl = extractIngressBaseUrl(payload);
+    this._ingressResolved = true;
+    this._resolvingIngress = false;
+    this._render();
+  }
+
   _render() {
     const config = this._config || {};
-    const previewUrl = buildRadarUrl(config);
+    const previewUrl = buildRadarUrl(config, "", this._resolvedBaseUrl);
     const suggestedUrl = suggestedBaseUrl();
+    const baseUrlHelp = this._resolvedBaseUrl && !configuredBaseUrl(config)
+      ? `Using detected ingress URL: ${this._resolvedBaseUrl}`
+      : "Leave blank to use add-on ingress automatically when it is available.";
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -713,19 +705,15 @@ class BomRadarCardEditor extends HTMLElement {
       </style>
       <div class="editor">
         <div class="note">
-          Use a stable proxy root for <code>base_url</code>, such as <code>http://homeassistant.local:8083/</code> or an HTTPS reverse proxy. Hardcoded Home Assistant ingress session URLs are not ideal for long-lived dashboards.
+          Leave <code>base_url</code> blank to use the BOM Interactive Proxy add-on ingress automatically when it is available. If you need direct access instead, use a stable proxy root such as <code>http://homeassistant.local:8083/</code> or an HTTPS reverse proxy.
         </div>
 
         <details open>
           <summary>Connection</summary>
           <div class="section-body">
             ${editorTextField("Title", "title", config.title, "BOM Radar", "Optional card header.")}
-            ${editorTextField("Base URL", "base_url", config.base_url, suggestedUrl || "http://homeassistant.local:8083/", "Root URL of BOM Interactive Proxy, not a /location/... page.")}
+            ${editorTextField("Base URL", "base_url", config.base_url, suggestedUrl || "http://homeassistant.local:8083/", `Root URL of BOM Interactive Proxy, not a /location/... page. ${baseUrlHelp}`)}
             ${editorNumberField("Card height", "height", config.height, String(DEFAULT_CARD_HEIGHT), "Card body height in pixels.", 240)}
-            <label class="checkbox">
-              <input data-key="show_toolbar" data-kind="checkbox" type="checkbox" ${config.show_toolbar !== false ? "checked" : ""}>
-              <span>Show toolbar with reload/open buttons</span>
-            </label>
             ${editorNumberField("Auto-refresh interval", "refresh_interval", config.refresh_interval, "0", "Minutes between forced iframe reloads. Leave blank or 0 to disable.", 0)}
           </div>
         </details>
@@ -775,15 +763,17 @@ class BomRadarCardEditor extends HTMLElement {
 
         <div class="preview">
           <strong>Preview URL</strong><br>
-          ${previewUrl ? escapeHtml(previewUrl) : "Set base_url to generate a preview URL."}
+          ${previewUrl
+            ? escapeHtml(previewUrl)
+            : this._resolvingIngress
+              ? "Checking BOM Interactive Proxy ingress..."
+              : "Set base_url or enable add-on ingress to generate a preview URL."}
         </div>
       </div>
     `;
 
-    this.shadowRoot.removeEventListener("input", this._boundInput);
-    this.shadowRoot.removeEventListener("change", this._boundInput);
-    this.shadowRoot.addEventListener("input", this._boundInput);
-    this.shadowRoot.addEventListener("change", this._boundInput);
+    this.shadowRoot.removeEventListener("change", this._boundChange);
+    this.shadowRoot.addEventListener("change", this._boundChange);
   }
 
   _handleValueChanged(event) {
@@ -829,6 +819,13 @@ class BomRadarCardEditor extends HTMLElement {
     }
 
     this._config = nextConfig;
+    this._ingressRequestId += 1;
+    this._resolvingIngress = false;
+    this._resolvedBaseUrl = configuredBaseUrl(nextConfig);
+    this._ingressResolved = Boolean(this._resolvedBaseUrl);
+    if (!this._resolvedBaseUrl) {
+      this._ensureResolvedBaseUrl();
+    }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
       bubbles: true,
@@ -851,7 +848,7 @@ if (!window.customCards.some((card) => card.type === BOM_RADAR_CARD_TAG)) {
   window.customCards.push({
     type: BOM_RADAR_CARD_TAG,
     name: "BOM Interactive Proxy Card",
-    description: "Dashboard card for BOM Interactive Proxy radar maps with location, zoom, labels, animation, and refresh controls.",
+    description: "Dashboard card for BOM Interactive Proxy radar maps with location, zoom, labels, animation, and ingress support.",
     preview: true,
   });
 }

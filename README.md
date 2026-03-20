@@ -26,6 +26,8 @@ Use a stable proxy root for `base_url`:
 - local direct access: `http://homeassistant.local:8083/`
 - reverse-proxied access: `https://weather.example.com/`
 
+If `base_url` is left blank, the card will try to use the BOM Interactive Proxy add-on ingress URL automatically.
+
 Avoid hardcoding Home Assistant ingress session URLs for long-lived dashboards. They are useful for testing, but they are not the best stable dashboard target.
 
 If your Home Assistant dashboard is served over HTTPS, use an HTTPS or same-origin `base_url`. Browsers can block `http://...:8083/` as mixed content.
@@ -61,7 +63,6 @@ type: module
 ```yaml
 type: custom:bom-radar-card
 title: BOM Radar
-base_url: http://homeassistant.local:8083/
 place: melbourne
 zoom: 7
 ```
@@ -82,7 +83,6 @@ interactive: on
 animate: on
 animate_mode: native
 height: 520
-show_toolbar: true
 refresh_interval: 10
 ```
 
@@ -91,7 +91,7 @@ refresh_interval: 10
 | Key | Type | Description |
 | --- | --- | --- |
 | `title` | string | Optional card header. |
-| `base_url` | string | Root URL of BOM Interactive Proxy. |
+| `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to auto-use add-on ingress when available. |
 | `path` | string | Full BOM location path. |
 | `place` | string | Place lookup, for example `melbourne` or `richmond,vic`. |
 | `coords` | string | Coordinate lookup in `lat,lon` form. |
@@ -107,13 +107,13 @@ refresh_interval: 10
 | `frame_skip` | number | Proxy `frameSkip` setting. |
 | `low_power` | `default`, `on`, `off` | Proxy `lowPower` setting. |
 | `height` | number | Card body height in pixels. |
-| `show_toolbar` | boolean | Show reload/open buttons and status chips. |
 | `refresh_interval` | number | Minutes between forced iframe reloads. `0` or blank disables it. |
 | `extra_query` | string | Raw query string appended to the generated URL. |
 
 ## Notes
 
 - The card passes options straight through to the proxy URL, so the proxy remains the source of truth.
+- When `base_url` is not set, the card tries the `bom_interactive_proxy` add-on ingress URL automatically.
 - `path` is the most specific location option and should win over `place` or `coords`.
 - The built-in editor exposes the most useful dashboard options without needing YAML.
 - Tested against BOM Interactive Proxy `1.0.64`.
