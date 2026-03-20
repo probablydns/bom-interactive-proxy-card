@@ -850,7 +850,7 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === BOM_RADAR_CARD_TAG)) {
   window.customCards.push({
     type: BOM_RADAR_CARD_TAG,
-    name: "BOM Radar Card",
+    name: "BOM Interactive Proxy Card",
     description: "Dashboard card for BOM Interactive Proxy radar maps with location, zoom, labels, animation, and refresh controls.",
     preview: true,
   });

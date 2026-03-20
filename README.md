@@ -1,6 +1,9 @@
-# BOM Radar Card
+# BOM Interactive Proxy Card
 
 Self-contained Home Assistant custom card for embedding [BOM Interactive Proxy](https://github.com/probablydns/bom-interactive-proxy) on a dashboard.
+
+The display name is `BOM Interactive Proxy Card`.
+The card type remains `custom:bom-radar-card` for backward compatibility.
 
 This folder is intended to be copied into its own repository as-is.
 
