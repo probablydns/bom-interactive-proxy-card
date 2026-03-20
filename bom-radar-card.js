@@ -254,7 +254,7 @@ function isRawIngressBaseUrl(value) {
 }
 
 async function fetchAddonInfo(hass, slugCandidates) {
-  if (!hass || typeof hass.callApi !== "function") {
+  if (!hass) {
     return null;
   }
 
@@ -265,13 +265,12 @@ async function fetchAddonInfo(hass, slugCandidates) {
     }
 
     const endpoints = [
-      `hassio/addons/${encodeURIComponent(slug)}/info`,
-      `supervisor/addons/${encodeURIComponent(slug)}/info`,
+      `/addons/${encodeURIComponent(slug)}/info`,
     ];
 
     for (const endpoint of endpoints) {
       try {
-        const payload = await hass.callApi("GET", endpoint);
+        const payload = await callSupervisorApi(hass, endpoint, "get");
         if (payload) {
           return payload;
         }
@@ -282,6 +281,53 @@ async function fetchAddonInfo(hass, slugCandidates) {
   }
 
   return null;
+}
+
+async function callSupervisorApi(hass, endpoint, method = "get", data = undefined) {
+  if (!hass) {
+    return null;
+  }
+
+  if (hass.connection && typeof hass.connection.sendMessagePromise === "function") {
+    const message = {
+      type: "supervisor/api",
+      endpoint,
+      method,
+    };
+
+    if (data && typeof data === "object") {
+      message.data = data;
+    }
+
+    return await hass.connection.sendMessagePromise(message);
+  }
+
+  if (typeof hass.callApi === "function") {
+    const path = `hassio/${String(endpoint || "").replace(/^\/+/, "")}`;
+    return await hass.callApi(method.toUpperCase(), path, data);
+  }
+
+  return null;
+}
+
+function writeIngressSessionCookie(session) {
+  const normalized = normalizeText(session);
+  if (!normalized || typeof document === "undefined") {
+    return;
+  }
+
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `ingress_session=${encodeURIComponent(normalized)}; path=/; SameSite=Lax${secure}`;
+}
+
+async function ensureIngressSession(hass) {
+  const payload = await callSupervisorApi(hass, "/ingress/session", "post");
+  const info = unpackApiPayload(payload);
+  const session = normalizeText(info.session);
+  if (session) {
+    writeIngressSessionCookie(session);
+  }
+  return session;
 }
 
 function editorTextField(label, key, value, placeholder, helpText = "") {
@@ -452,6 +498,7 @@ class BomRadarCard extends HTMLElement {
     this._resolvingIngress = true;
     this._render();
 
+    await ensureIngressSession(this._hass);
     const payload = await fetchAddonInfo(this._hass, addonSlugs(this._config));
     if (requestId !== this._ingressRequestId) {
       return;
@@ -648,6 +695,7 @@ class BomRadarCardEditor extends HTMLElement {
     this._resolvingIngress = true;
     this._render();
 
+    await ensureIngressSession(this._hass);
     const payload = await fetchAddonInfo(this._hass, addonSlugs(this._config));
     if (requestId !== this._ingressRequestId) {
       return;
