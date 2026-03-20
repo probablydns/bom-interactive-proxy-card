@@ -26,7 +26,7 @@ Use a stable proxy root for `base_url`:
 - local direct access: `http://homeassistant.local:8083/`
 - reverse-proxied access: `https://weather.example.com/`
 
-If `base_url` is left blank, the card will try to use the BOM Interactive Proxy add-on ingress URL automatically.
+If `base_url` is left blank, the card uses the stable Home Assistant ingress path `/app/13fa7b7e_bom_interactive_proxy/`.
 
 Avoid hardcoding Home Assistant ingress session URLs for long-lived dashboards. They are useful for testing, but they are not the best stable dashboard target.
 
@@ -67,6 +67,16 @@ place: melbourne
 zoom: 7
 ```
 
+## Ingress Example
+
+```yaml
+type: custom:bom-radar-card
+title: BOM Radar
+base_url: /app/13fa7b7e_bom_interactive_proxy/
+place: melbourne
+zoom: 7
+```
+
 ## Advanced Example
 
 ```yaml
@@ -91,7 +101,7 @@ refresh_interval: 10
 | Key | Type | Description |
 | --- | --- | --- |
 | `title` | string | Optional card header. |
-| `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to auto-use add-on ingress when available. |
+| `base_url` | string | Root URL of BOM Interactive Proxy. Leave blank to use `/app/13fa7b7e_bom_interactive_proxy/`. |
 | `path` | string | Full BOM location path. |
 | `place` | string | Place lookup, for example `melbourne` or `richmond,vic`. |
 | `coords` | string | Coordinate lookup in `lat,lon` form. |
@@ -113,7 +123,7 @@ refresh_interval: 10
 ## Notes
 
 - The card passes options straight through to the proxy URL, so the proxy remains the source of truth.
-- When `base_url` is not set, the card tries the `bom_interactive_proxy` add-on ingress URL automatically.
+- The stable ingress path for this add-on is `/app/13fa7b7e_bom_interactive_proxy/`.
 - `path` is the most specific location option and should win over `place` or `coords`.
 - The built-in editor exposes the most useful dashboard options without needing YAML.
 - Tested against BOM Interactive Proxy `1.0.64`.
