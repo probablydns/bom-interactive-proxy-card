@@ -404,6 +404,8 @@ class BomRadarCard extends HTMLElement {
     this._emptyMsg = null;
     this._lastRenderedUrl = "";
     this._domInitialized = false;
+    this._scrollGuardTimer = null;
+    this._scrollGuardHandler = null;
   }
 
   setConfig(config) {
@@ -441,6 +443,7 @@ class BomRadarCard extends HTMLElement {
 
   disconnectedCallback() {
     this._clearRefreshTimer();
+    this._stopScrollGuard();
   }
 
   getCardSize() {
@@ -632,9 +635,13 @@ class BomRadarCard extends HTMLElement {
 
     this._iframe.addEventListener("load", () => {
       this._overlay.classList.add("hidden");
+      // Keep scroll guard active briefly after load — iframe content may call
+      // scrollIntoView() or focus() during its own initialisation.
+      window.setTimeout(() => this._stopScrollGuard(), 5000);
     });
     this._iframe.addEventListener("error", () => {
       this._overlay.textContent = "Unable to load BOM radar";
+      this._stopScrollGuard();
     });
 
     this._domInitialized = true;
@@ -668,6 +675,7 @@ class BomRadarCard extends HTMLElement {
       if (url !== this._lastRenderedUrl) {
         this._overlay.textContent = "Loading BOM radar\u2026";
         this._overlay.classList.remove("hidden");
+        this._startScrollGuard();
         this._iframe.src = url;
         this._lastRenderedUrl = url;
       }
@@ -682,6 +690,29 @@ class BomRadarCard extends HTMLElement {
       }
 
       this._lastRenderedUrl = "";
+    }
+  }
+
+  _startScrollGuard() {
+    this._stopScrollGuard();
+    const savedX = window.scrollX;
+    const savedY = window.scrollY;
+    this._scrollGuardHandler = () => {
+      window.scrollTo(savedX, savedY);
+    };
+    window.addEventListener("scroll", this._scrollGuardHandler);
+    // Safety timeout: remove guard after 8s even if iframe never fires load
+    this._scrollGuardTimer = window.setTimeout(() => this._stopScrollGuard(), 8000);
+  }
+
+  _stopScrollGuard() {
+    if (this._scrollGuardHandler) {
+      window.removeEventListener("scroll", this._scrollGuardHandler);
+      this._scrollGuardHandler = null;
+    }
+    if (this._scrollGuardTimer) {
+      window.clearTimeout(this._scrollGuardTimer);
+      this._scrollGuardTimer = null;
     }
   }
 
