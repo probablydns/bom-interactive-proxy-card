@@ -438,6 +438,11 @@ class BomRadarCard extends HTMLElement {
     if (!this._domInitialized) {
       this._render();
     }
+    // Start scroll guard as soon as the card enters the DOM, so it catches
+    // any scroll caused by the element insertion or early iframe loading.
+    if (this._lastRenderedUrl && !this._scrollGuardCleanup) {
+      this._startScrollGuard();
+    }
   }
 
   disconnectedCallback() {
@@ -531,6 +536,7 @@ class BomRadarCard extends HTMLElement {
       <style>
         :host {
           display: block;
+          overflow-anchor: none;
         }
 
         ha-card {
