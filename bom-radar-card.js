@@ -395,6 +395,15 @@ class BomRadarCard extends HTMLElement {
     this._resolvingIngress = false;
     this._ingressResolved = false;
     this._ingressRequestId = 0;
+    this._cardEl = null;
+    this._frameShell = null;
+    this._iframe = null;
+    this._overlay = null;
+    this._warningEl = null;
+    this._emptyEl = null;
+    this._emptyMsg = null;
+    this._lastRenderedUrl = "";
+    this._domInitialized = false;
   }
 
   setConfig(config) {
@@ -416,7 +425,8 @@ class BomRadarCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._ensureResolvedBaseUrl();
-    if (!this.shadowRoot.innerHTML) {
+    // Only render if DOM hasn't been created yet; _updateDom has no hass-dependent state.
+    if (!this._domInitialized) {
       this._render();
     }
   }
@@ -424,7 +434,7 @@ class BomRadarCard extends HTMLElement {
   connectedCallback() {
     this._syncRefreshTimer();
     this._ensureResolvedBaseUrl();
-    if (!this.shadowRoot.innerHTML) {
+    if (!this._domInitialized) {
       this._render();
     }
   }
@@ -510,13 +520,10 @@ class BomRadarCard extends HTMLElement {
     this._render();
   }
 
-  _render() {
-    const title = normalizeText(this._config.title);
-    const url = buildRadarUrl(this._config, this._reloadToken, this._resolvedBaseUrl);
-    const height = resolvedCardHeight(this._config);
-    const mixedContent = Boolean(url) && window.location.protocol === "https:" && url.startsWith("http://");
-    const waitingForIngress = !url && this._resolvingIngress;
-    const headerAttr = title ? ` header="${escapeHtml(title)}"` : "";
+  _ensureDom() {
+    if (this._domInitialized) {
+      return;
+    }
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -526,6 +533,10 @@ class BomRadarCard extends HTMLElement {
 
         ha-card {
           overflow: hidden;
+        }
+
+        .hidden {
+          display: none !important;
         }
 
         .card-content {
@@ -557,7 +568,6 @@ class BomRadarCard extends HTMLElement {
 
         .frame-shell {
           position: relative;
-          height: ${height}px;
           background: #000;
           border-top: 1px solid var(--divider-color);
         }
@@ -596,43 +606,88 @@ class BomRadarCard extends HTMLElement {
           white-space: nowrap;
         }
       </style>
-      <ha-card${headerAttr}>
+      <ha-card>
         <div class="card-content">
-          ${mixedContent ? `
-            <div class="message warning">
-              This dashboard is running over HTTPS but the radar URL is HTTP. Browsers can block mixed-content iframes. Use an HTTPS or same-origin base URL if the card stays blank.
-            </div>
-          ` : ""}
-          ${url ? `
-            <div class="frame-shell">
-              <div class="overlay" id="overlay">Loading BOM radar…</div>
-              <iframe id="radarFrame" src="${escapeHtml(url)}" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-            </div>
-          ` : `
-            <div class="empty-state">
-              <div class="message error">
-                <strong>Card setup needed</strong>
-                ${waitingForIngress
-                  ? "Checking BOM Interactive Proxy ingress..."
-                  : "Set <code>base_url</code> to the BOM Interactive Proxy root, for example <code>http://homeassistant.local:8083/</code>, or enable add-on ingress and leave <code>base_url</code> blank."}
-              </div>
-            </div>
-          `}
+          <div class="message warning hidden">
+            This dashboard is running over HTTPS but the radar URL is HTTP. Browsers can block mixed-content iframes. Use an HTTPS or same-origin base URL if the card stays blank.
+          </div>
+          <div class="frame-shell hidden">
+            <div class="overlay">Loading BOM radar\u2026</div>
+            <iframe loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+          </div>
+          <div class="empty-state hidden">
+            <div class="message error"></div>
+          </div>
         </div>
       </ha-card>
     `;
 
-    const frame = this.shadowRoot.getElementById("radarFrame");
-    const overlay = this.shadowRoot.getElementById("overlay");
+    this._cardEl = this.shadowRoot.querySelector("ha-card");
+    this._warningEl = this.shadowRoot.querySelector(".message.warning");
+    this._frameShell = this.shadowRoot.querySelector(".frame-shell");
+    this._overlay = this.shadowRoot.querySelector(".overlay");
+    this._iframe = this.shadowRoot.querySelector("iframe");
+    this._emptyEl = this.shadowRoot.querySelector(".empty-state");
+    this._emptyMsg = this.shadowRoot.querySelector(".empty-state .message.error");
 
-    if (frame && overlay) {
-      frame.addEventListener("load", () => {
-        overlay.style.display = "none";
-      }, { once: true });
-      frame.addEventListener("error", () => {
-        overlay.textContent = "Unable to load BOM radar";
-      }, { once: true });
+    this._iframe.addEventListener("load", () => {
+      this._overlay.classList.add("hidden");
+    });
+    this._iframe.addEventListener("error", () => {
+      this._overlay.textContent = "Unable to load BOM radar";
+    });
+
+    this._domInitialized = true;
+  }
+
+  _updateDom() {
+    const title = normalizeText(this._config.title);
+    const url = buildRadarUrl(this._config, this._reloadToken, this._resolvedBaseUrl);
+    const height = resolvedCardHeight(this._config);
+    const mixedContent = Boolean(url) && window.location.protocol === "https:" && url.startsWith("http://");
+    const waitingForIngress = !url && this._resolvingIngress;
+
+    // Title
+    if (title) {
+      this._cardEl.setAttribute("header", title);
+    } else {
+      this._cardEl.removeAttribute("header");
     }
+
+    // Height
+    this._frameShell.style.height = height + "px";
+
+    // Mixed content warning
+    this._warningEl.classList.toggle("hidden", !mixedContent);
+
+    // Frame vs empty state
+    if (url) {
+      this._frameShell.classList.remove("hidden");
+      this._emptyEl.classList.add("hidden");
+
+      if (url !== this._lastRenderedUrl) {
+        this._overlay.textContent = "Loading BOM radar\u2026";
+        this._overlay.classList.remove("hidden");
+        this._iframe.src = url;
+        this._lastRenderedUrl = url;
+      }
+    } else {
+      this._frameShell.classList.add("hidden");
+      this._emptyEl.classList.remove("hidden");
+
+      if (waitingForIngress) {
+        this._emptyMsg.innerHTML = "<strong>Card setup needed</strong>Checking BOM Interactive Proxy ingress\u2026";
+      } else {
+        this._emptyMsg.innerHTML = '<strong>Card setup needed</strong>Set <code>base_url</code> to the BOM Interactive Proxy root, for example <code>http://homeassistant.local:8083/</code>, or enable add-on ingress and leave <code>base_url</code> blank.';
+      }
+
+      this._lastRenderedUrl = "";
+    }
+  }
+
+  _render() {
+    this._ensureDom();
+    this._updateDom();
   }
 }
 
@@ -676,6 +731,10 @@ class BomRadarCardEditor extends HTMLElement {
     if (!this.shadowRoot.innerHTML) {
       this._render();
     }
+  }
+
+  disconnectedCallback() {
+    this._ingressRequestId += 1;
   }
 
   async _ensureResolvedBaseUrl() {
