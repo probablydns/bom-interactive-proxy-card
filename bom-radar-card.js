@@ -404,8 +404,7 @@ class BomRadarCard extends HTMLElement {
     this._emptyMsg = null;
     this._lastRenderedUrl = "";
     this._domInitialized = false;
-    this._scrollGuardTimer = null;
-    this._scrollGuardHandler = null;
+    this._scrollGuardCleanup = null;
   }
 
   setConfig(config) {
@@ -635,13 +634,9 @@ class BomRadarCard extends HTMLElement {
 
     this._iframe.addEventListener("load", () => {
       this._overlay.classList.add("hidden");
-      // Keep scroll guard active briefly after load — iframe content may call
-      // scrollIntoView() or focus() during its own initialisation.
-      window.setTimeout(() => this._stopScrollGuard(), 5000);
     });
     this._iframe.addEventListener("error", () => {
       this._overlay.textContent = "Unable to load BOM radar";
-      this._stopScrollGuard();
     });
 
     this._domInitialized = true;
@@ -682,6 +677,7 @@ class BomRadarCard extends HTMLElement {
     } else {
       this._frameShell.classList.add("hidden");
       this._emptyEl.classList.remove("hidden");
+      this._stopScrollGuard();
 
       if (waitingForIngress) {
         this._emptyMsg.innerHTML = "<strong>Card setup needed</strong>Checking BOM Interactive Proxy ingress\u2026";
@@ -695,24 +691,56 @@ class BomRadarCard extends HTMLElement {
 
   _startScrollGuard() {
     this._stopScrollGuard();
-    const savedX = window.scrollX;
-    const savedY = window.scrollY;
-    this._scrollGuardHandler = () => {
-      window.scrollTo(savedX, savedY);
+    let savedX = window.scrollX;
+    let savedY = window.scrollY;
+    let userScrolling = false;
+    let inputTimer = null;
+
+    // Track user input that indicates intentional scrolling.
+    const onUserInput = () => {
+      userScrolling = true;
+      clearTimeout(inputTimer);
+      inputTimer = setTimeout(() => {
+        userScrolling = false;
+        // Accept the user's new scroll position as the baseline.
+        savedX = window.scrollX;
+        savedY = window.scrollY;
+      }, 150);
     };
-    window.addEventListener("scroll", this._scrollGuardHandler);
-    // Safety timeout: remove guard after 8s even if iframe never fires load
-    this._scrollGuardTimer = window.setTimeout(() => this._stopScrollGuard(), 8000);
+
+    const onScroll = () => {
+      if (userScrolling) {
+        // User is actively scrolling — update baseline, don't fight it.
+        savedX = window.scrollX;
+        savedY = window.scrollY;
+      } else {
+        // Programmatic scroll (from iframe) — restore immediately.
+        window.scrollTo(savedX, savedY);
+      }
+    };
+
+    window.addEventListener("scroll", onScroll);
+    window.addEventListener("wheel", onUserInput, { passive: true });
+    window.addEventListener("touchstart", onUserInput, { passive: true });
+    window.addEventListener("touchmove", onUserInput, { passive: true });
+    window.addEventListener("keydown", onUserInput);
+    window.addEventListener("pointerdown", onUserInput);
+
+    this._scrollGuardCleanup = () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("wheel", onUserInput);
+      window.removeEventListener("touchstart", onUserInput);
+      window.removeEventListener("touchmove", onUserInput);
+      window.removeEventListener("keydown", onUserInput);
+      window.removeEventListener("pointerdown", onUserInput);
+      clearTimeout(inputTimer);
+    };
   }
 
   _stopScrollGuard() {
-    if (this._scrollGuardHandler) {
-      window.removeEventListener("scroll", this._scrollGuardHandler);
-      this._scrollGuardHandler = null;
-    }
-    if (this._scrollGuardTimer) {
-      window.clearTimeout(this._scrollGuardTimer);
-      this._scrollGuardTimer = null;
+    if (this._scrollGuardCleanup) {
+      this._scrollGuardCleanup();
+      this._scrollGuardCleanup = null;
     }
   }
 
